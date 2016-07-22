@@ -3,3 +3,6 @@ all:
 
 clean:
 	rm -rf .build/
+
+repl: all
+	swift -I .build/debug -L .build/debug -I Packages/ -lDispatchPQ

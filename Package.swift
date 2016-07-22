@@ -8,3 +8,9 @@ let package = Package(
                  majorVersion: 1)
     ]
 )
+
+let dylib = Product(name: "DispatchPQ",
+                    type: .Library(.Dynamic),
+                    modules: "DispatchPQ")
+
+products.append(dylib)

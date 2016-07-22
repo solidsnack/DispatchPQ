@@ -30,7 +30,7 @@ public final class Connection {
     private var clientThread: pthread_t? = nil
     private var cookie: UInt32 = arc4random()
 
-    init(_ conninfo: URL, cxn: OpaquePointer!) {
+    public init(_ conninfo: URL, cxn: OpaquePointer!) {
         self.cxn = cxn
         self.cancelToken = Cancel(PQgetCancel(cxn))
         self.conninfo = conninfo
@@ -40,27 +40,27 @@ public final class Connection {
         PQfinish(cxn)
     }
 
-    convenience init(_ conninfo: String) throws {
+    public convenience init(_ conninfo: String = "") throws {
         let s = conninfo == "" ? "postgres:///" : conninfo
         guard let url = URL(string: s) else { throw Error.badURL }
         try self.init(url)
     }
 
-    convenience init(_ conninfo: URL) throws {
+    public convenience init(_ conninfo: URL) throws {
         let cxn = PQconnectdb(conninfo.relativeString)
         if PQstatus(cxn) != CONNECTION_OK { throw Error.probe(cxn: cxn) }
         self.init(conninfo, cxn: cxn)
     }
 
-    func query(_ text: String, _ params: [String?] = []) throws -> Rows {
+    public func query(_ text: String, _ params: [String?] = []) throws -> Rows {
         return try query(text, params.map { $0.map { .string($0) } ?? .null })
     }
 
-    func query(_ text: String, _ params: [PGParam]) throws -> Rows {
+    public func query(_ text: String, _ params: [PGParam]) throws -> Rows {
         return try request(Exec.execParams(text, params))
     }
 
-    func transaction<T>(block: @noescape () throws -> T) rethrows -> T {
+    public func transaction<T>(block: @noescape () throws -> T) rethrows -> T {
         return try with {
             let stat = PQtransactionStatus(cxn)
             guard let actions = transactionActions(stat: stat) else {
@@ -80,7 +80,7 @@ public final class Connection {
 
 
     /// Cancel whatever the connection is doing.
-    func cancel() throws {
+    public func cancel() throws {
         try cancelToken.cancel()
     }
 
@@ -95,7 +95,7 @@ public final class Connection {
     /// closure parameter is running, no other threads may access the
     /// connection. This prevents threads from interleaving statements when
     /// running multi-step operations.
-    func with<T>(block: @noescape () throws -> T) rethrows -> T {
+    public func with<T>(block: @noescape () throws -> T) rethrows -> T {
         let me = pthread_self()
         if let t = clientThread where t == me {
             // We are in the thread and it is blocking on this code, so...
@@ -111,7 +111,7 @@ public final class Connection {
     }
 
     /// Re-establishes a Postgres connection, using the existing options.
-    func reset() throws {
+    public func reset() throws {
         try with {
             PQreset(cxn)
             try check()
@@ -121,32 +121,32 @@ public final class Connection {
 
     /// Returns the connection status, safely accessing the connection to do
     /// so.
-    func status() -> ConnStatusType {
+    public func status() -> ConnStatusType {
         return with { PQstatus(cxn) }
     }
 
     /// Throws if the connection is in an unhealthy state.
-    func check() throws {
+    public func check() throws {
         if status() != CONNECTION_OK { throw Error.probe(cxn: cxn) }
     }
 
     /// Retrieves buffered input from the underlying socket and stores it in a
     /// staging area. This clears any relevant select/epoll/kqueue state.
-    func consumeInput() throws {
+    public func consumeInput() throws {
         try with {
             if PQconsumeInput(cxn) == 0 { throw Error.probe(cxn: cxn) }
         }
     }
 
     /// Determine if the connection is busy (processing an asynchronous query).
-    func busy() throws -> Bool {
+    public func busy() throws -> Bool {
         return try with {
             try consumeInput()
             return 0 != PQisBusy(cxn)
         }
     }
 
-    func processNotifications() {
+    public func processNotifications() {
         with {
             while let ptr: UnsafeMutablePointer<PGnotify>? = PQnotifies(cxn) {
                 notifications += [Notification(ptr)]
@@ -155,7 +155,7 @@ public final class Connection {
     }
 
     /// Get the next batch of rows or throw if there was an error.
-    func rows() throws -> Rows? {
+    public func rows() throws -> Rows? {
         let data: OpaquePointer? = with {
             defer { processNotifications() }
             let ptr = PQgetResult(cxn)
@@ -168,7 +168,7 @@ public final class Connection {
 
     /// Perform any low-level libpq operation that communicates with the
     /// server.
-    func request<R: Request>(_ req: R) throws -> R.Response {
+    public func request<R: Request>(_ req: R) throws -> R.Response {
         // Send pre event here.
         return try req.call(self)
         // Send post event here.
@@ -183,7 +183,7 @@ public final class Cancel {
         self.canceller = canceller
     }
 
-    func cancel() throws {                                   // NB: Thread safe
+    public func cancel() throws {                            // NB: Thread safe
         let buffer = UnsafeMutablePointer<Int8>(allocatingCapacity: 256)
         defer { free(buffer) }
         let stat = PQcancel(canceller, buffer, 256)
@@ -206,15 +206,15 @@ public final class Notification {
         self.ptr = ptr
     }
 
-    var channel: String {
+    public var channel: String {
         return String(cString: ptr.pointee.relname)
     }
 
-    var message: String {
+    public var message: String {
         return String(cString: ptr.pointee.extra)
     }
 
-    var pid: Int32 {
+    public var pid: Int32 {
         return ptr.pointee.be_pid
     }
 
@@ -402,23 +402,23 @@ public final class Rows {
         PQclear(res)
     }
 
-    var status: ExecStatusType {
+    public var status: ExecStatusType {
         return PQresultStatus(res)
     }
 
-    var err: String {
+    public var err: String {
         return String(cString: PQresultErrorMessage(res))
     }
 
-    var count: Int32 {
+    public var count: Int32 {
         return PQntuples(res)
     }
 
-    var columns: [String] {
+    public var columns: [String] {
         return (0..<PQnfields(res)).map { String(cString: PQfname(res, $0)) }
     }
 
-    func data() -> [[String?]] {
+    public func data() -> [[String?]] {
         var data: [[String?]] = []
         for row in 0..<PQntuples(res) {
             var thisRow: [String?] = []
@@ -437,7 +437,7 @@ public final class Rows {
         return data
     }
 
-    func errorField(char: Character) -> String? {
+    public func errorField(char: Character) -> String? {
         let field = Int32((String(char).unicodeScalars.first?.value)!)
         if let data = PQresultErrorField(res, field) {
              return String(cString: data)
@@ -445,7 +445,7 @@ public final class Rows {
         return nil
     }
 
-    func check() throws {
+    public func check() throws {
         if let sqlState = errorField(char: "C") {
             throw Error.onRequest(err, sqlState: sqlState)
         }
@@ -470,14 +470,14 @@ public enum Error : ErrorProtocol {
     }
 }
 
-extension ExecStatusType {
-    var message: String {
+public extension ExecStatusType {
+    public var message: String {
         return String(cString: PQresStatus(self))
     }
 }
 
-extension ConnStatusType {
-    var name: String {
+public extension ConnStatusType {
+    public var name: String {
         switch self {
         case CONNECTION_OK: return "CONNECTION_OK"
         case CONNECTION_BAD: return "CONNECTION_BAD"
